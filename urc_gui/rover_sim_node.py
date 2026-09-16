@@ -15,6 +15,11 @@ WAYPOINTS = [
     {'name': 'Final Marker', 'type': 'gnss_post', 'distance_m': 40.0, 'lat': 38.4085, 'lon': -110.7940},
 ]
 
+# Where the rover starts before the first waypoint -- not itself a mission
+# leg, just an anchor so the GUI's map has somewhere to draw the first route
+# segment from.
+START = {'lat': 38.4055, 'lon': -110.7908}
+
 # How fast the fake rover "closes distance" on each tick, in meters/tick.
 DRIVE_RATE_M = 4.0
 
@@ -68,6 +73,10 @@ class RoverSimNode(Node):
             self.get_logger().info(
                 f'Returning to previous target: {WAYPOINTS[self.current_index]["name"]}')
 
+        elif action == 'ping':
+            self.get_logger().info('Ping received, sending immediate state update')
+            self.publish_state()
+
         else:
             self.get_logger().warn(f'Unknown command: {action!r}')
 
@@ -90,9 +99,13 @@ class RoverSimNode(Node):
             self.distance_remaining = WAYPOINTS[self.current_index]['distance_m']
             self.led_state = 'blue'
         else:
-            # No more waypoints: mission complete, stay put.
-            self.distance_remaining = 0.0
-            self.mode = 'idle'
+            # Mission complete -- loop back to the start so the sim keeps
+            # producing live telemetry for the GUI instead of sitting idle
+            # at 0 forever.
+            self.current_index = 0
+            self.distance_remaining = WAYPOINTS[0]['distance_m']
+            self.mode = 'autonomous'
+            self.led_state = 'blue'
 
     def publish_state(self):
         target = WAYPOINTS[self.current_index]
@@ -104,6 +117,13 @@ class RoverSimNode(Node):
             'gnss_lat': target['lat'],
             'gnss_lon': target['lon'],
             'led_state': self.led_state,
+            'current_index': self.current_index,
+            'start': START,
+            'waypoints': [
+                {'name': wp['name'], 'distance_m': wp['distance_m'],
+                 'lat': wp['lat'], 'lon': wp['lon']}
+                for wp in WAYPOINTS
+            ],
         }
         msg = String()
         msg.data = json.dumps(state)
